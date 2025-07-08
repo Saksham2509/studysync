@@ -1,17 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { useSocket } from "../contexts/SocketContext";
 
+// UserList listens for the 'roomUsers' event and displays all user names in the room
 const UserList = ({ room }) => {
   const socket = useSocket();
   const [users, setUsers] = useState([]);
 
   useEffect(() => {
     if (!socket || !room) return;
-    const handleUserList = (userList) => setUsers(userList);
-    socket.on("userList", handleUserList);
-    // Request user list on mount (optional)
-    // socket.emit("getUserList", { room });
-    return () => socket.off("userList", handleUserList);
+    const handleRoomUsers = (userList) => setUsers(userList);
+    socket.on("roomUsers", handleRoomUsers);
+    return () => socket.off("roomUsers", handleRoomUsers);
   }, [socket, room]);
 
   return (

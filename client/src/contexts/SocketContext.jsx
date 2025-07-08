@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
 // Create the Socket context
@@ -9,21 +9,18 @@ export const useSocket = () => useContext(SocketContext);
 
 // Provider component
 export const SocketProvider = ({ children }) => {
-  const socketRef = useRef();
+  const [socket, setSocket] = useState(null);
 
   useEffect(() => {
-    // Replace with your backend URL if different
-    socketRef.current = io("http://localhost:5000", {
+    const newSocket = io("http://localhost:5000", {
       withCredentials: true,
     });
-
-    return () => {
-      socketRef.current.disconnect();
-    };
+    setSocket(newSocket);
+    return () => newSocket.disconnect();
   }, []);
 
   return (
-    <SocketContext.Provider value={socketRef.current}>
+    <SocketContext.Provider value={socket}>
       {children}
     </SocketContext.Provider>
   );

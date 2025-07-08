@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useSocket } from "../contexts/SocketContext";
 
+// RoomJoin emits 'joinRoom' with userName and room
 const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
   const [roomInput, setRoomInput] = useState("");
   const [nameInput, setNameInput] = useState("");
@@ -9,11 +10,12 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
 
   const handleJoin = (e) => {
     e.preventDefault();
-    if (!roomInput || !nameInput) return;
+    if (!roomInput || !nameInput || !socket) return;
     setRoom(roomInput);
     setUserName(nameInput);
     setIsHost(host);
-    socket.emit("joinRoom", { room: roomInput, user: { name: nameInput } });
+    // Emit userName and room to backend, only if socket is ready
+    socket.emit("joinRoom", { room: roomInput, userName: nameInput });
   };
 
   return (
@@ -34,8 +36,8 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
         <input type="checkbox" checked={host} onChange={e => setHost(e.target.checked)} />
         Join as Host
       </label>
-      <button className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600" type="submit">
-        Join Room
+      <button className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600" type="submit" disabled={!socket}>
+        {socket ? "Join Room" : "Connecting..."}
       </button>
     </form>
   );

@@ -9,9 +9,22 @@ const Chat = ({ room, userName }) => {
 
   useEffect(() => {
     if (!socket || !room) return;
-    const handleMessage = (msg) => setMessages((prev) => [...prev, msg]);
-    socket.on("chatMessage", handleMessage);
-    return () => socket.off("chatMessage", handleMessage);
+    const handleMessage = (msg) => {
+      setMessages((prev) => [...prev, msg]);
+      new Audio("/sounds/message.mp3").play();
+    };
+    const handleHistory = (history) => {
+      setMessages(history.map(m => ({
+        ...m,
+        timestamp: m.createdAt || m.timestamp
+      })));
+    };
+    socket.on("chat:message", handleMessage);
+    socket.on("chat:history", handleHistory);
+    return () => {
+      socket.off("chat:message", handleMessage);
+      socket.off("chat:history", handleHistory);
+    };
   }, [socket, room]);
 
   useEffect(() => {
@@ -20,8 +33,13 @@ const Chat = ({ room, userName }) => {
 
   const sendMessage = (e) => {
     e.preventDefault();
-    if (!input.trim()) return;
-    socket.emit("chatMessage", { room, message: input, user: userName });
+    if (!input.trim() || !socket) return;
+    const message = {
+      user: userName,
+      text: input,
+      timestamp: new Date().toISOString(),
+    };
+    socket.emit("chat:message", { room, message });
     setInput("");
   };
 
@@ -31,10 +49,9 @@ const Chat = ({ room, userName }) => {
         {messages.map((msg, idx) => (
           <div key={idx} className="mb-1">
             <span className="font-semibold text-blue-600">{msg.user}: </span>
-            <span>{msg.message}</span>
+            <span>{msg.text}</span>
             <span className="text-xs text-gray-400 ml-2">
-              {msg.timestamp &&
-                new Date(msg.timestamp).toLocaleTimeString()}
+              {msg.timestamp && new Date(msg.timestamp).toLocaleTimeString()}
             </span>
           </div>
         ))}
