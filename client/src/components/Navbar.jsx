@@ -7,7 +7,7 @@ export default function Navbar() {
       <div className="flex space-x-4">
         <Link to="/" className="hover:text-gray-300">Home</Link>
         <Link to="/about" className="hover:text-gray-300">About</Link>
-        <Link to="/studyroom" className="hover:text-gray-300">Study Room</Link>
+        <Link to="/study-room" className="hover:text-gray-300">Study Room</Link>
       </div>
     </nav>
   );
