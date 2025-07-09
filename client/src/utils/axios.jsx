@@ -1,7 +1,8 @@
 import axios from "axios";
 
+// Using baseURL as empty string to work with the Vite proxy
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: "",
   withCredentials: true,
 });
 

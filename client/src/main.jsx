@@ -5,13 +5,19 @@ import './index.css';
 
 import { BrowserRouter } from 'react-router-dom';
 import { SocketProvider } from './contexts/SocketContext';
+import { AuthProvider } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
-      <SocketProvider>
-        <App />
-      </SocketProvider>
+      <AuthProvider>
+        <SocketProvider>
+          <NotificationProvider>
+            <App />
+          </NotificationProvider>
+        </SocketProvider>
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

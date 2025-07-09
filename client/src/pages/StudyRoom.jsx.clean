@@ -5,12 +5,8 @@ import UserList from "../components/UserList";
 import Chat from "../components/Chat";
 import Timer from "../components/Timer";
 import LoginModal from "../components/LoginModal";
-import ConfirmModal from "../components/ConfirmModal";
-import AlertModal from "../components/AlertModal";
-import PasswordModal from "../components/PasswordModal";
 import { useSocket } from "../contexts/SocketContext";
 import { useAuth } from "../contexts/AuthContext";
-import { useNotification } from "../contexts/NotificationContext";
 
 const StudyRoom = () => {
   const navigate = useNavigate();
@@ -23,17 +19,11 @@ const StudyRoom = () => {
   const [joinStatus, setJoinStatus] = useState("pending");
   const socket = useSocket();
   const { getUserInfo, loading: authLoading } = useAuth();
-  const { showError, showSuccess, showWarning } = useNotification();
   const userInfo = getUserInfo();
   const [userName, setUserName] = useState("");
   const [showRoomSelection, setShowRoomSelection] = useState(!roomName);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [redirectPath, setRedirectPath] = useState('');
-  
-  // Modal states for confirmations and alerts
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
-  const [alertModal, setAlertModal] = useState({ isOpen: false, title: '', message: '', type: 'info' });
-  const [passwordModal, setPasswordModal] = useState({ isOpen: false, roomName: '', pendingNavigation: null });
   
   // Room selection for /study-room page
   const [availableRooms, setAvailableRooms] = useState([]);
@@ -88,14 +78,9 @@ const StudyRoom = () => {
     
     if (!roomInput.trim()) return;
     
-    await joinRoomWithPasswordCheck(roomInput.trim());
-  };
-
-  // Function to handle joining a room with password check
-  const joinRoomWithPasswordCheck = async (roomName) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`/api/rooms/${encodeURIComponent(roomName)}`, {
+      const response = await axios.get(`/api/rooms/${encodeURIComponent(roomInput.trim())}`, {
         headers: { Authorization: `Bearer ${token}` }
       }).catch(error => {
         if (error.response && error.response.status === 404) {
@@ -107,62 +92,14 @@ const StudyRoom = () => {
       const roomExists = response.data && response.data.room;
       
       if (!roomExists) {
-        showError(`Room "${roomName}" does not exist!`);
+        alert(`Room "${roomInput.trim()}" does not exist!`);
         return;
-      } 
-      
-      const room = response.data.room;
-      
-      // Check if room is private - all private rooms now require password
-      if (!room.isPublic) {
-        setPasswordModal({
-          isOpen: true,
-          roomName: roomName,
-          pendingNavigation: roomName
-        });
       } else {
-        // Room is public, join directly
-        navigate(`/room/${encodeURIComponent(roomName)}`);
+        navigate(`/room/${encodeURIComponent(roomInput.trim())}`);
       }
     } catch (error) {
       console.error("Error checking room existence:", error);
-      showError("An error occurred while checking if this room exists.");
-    }
-  };
-
-  // Handle password submission
-  const handlePasswordSubmit = async (password) => {
-    try {
-      const token = localStorage.getItem("token");
-      const targetRoom = passwordModal.pendingNavigation || passwordModal.roomName;
-      
-      const response = await axios.post(
-        `/api/rooms/${encodeURIComponent(targetRoom)}/verify-password`,
-        { password },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (response.data.success) {
-        // Store verified room in session storage for security
-        const verifiedRooms = JSON.parse(sessionStorage.getItem('verifiedPrivateRooms') || '[]');
-        if (!verifiedRooms.includes(targetRoom)) {
-          verifiedRooms.push(targetRoom);
-          sessionStorage.setItem('verifiedPrivateRooms', JSON.stringify(verifiedRooms));
-        }
-        
-        setPasswordModal({ isOpen: false, roomName: '', pendingNavigation: null });
-        
-        // If we're already on the room page (direct URL access), fetch room info again
-        if (room === targetRoom) {
-          // Re-trigger room fetch now that password is verified
-          window.location.reload(); // Simple solution to re-trigger useEffect
-        } else {
-          // Navigate to the room
-          navigate(`/room/${encodeURIComponent(targetRoom)}`);
-        }
-      }
-    } catch (error) {
-      throw new Error(error.response?.data?.message || 'Incorrect password');
+      alert("An error occurred while checking if this room exists.");
     }
   };
 
@@ -181,34 +118,13 @@ const StudyRoom = () => {
           headers: { Authorization: `Bearer ${token}` },
         });
         
-        const roomData = res.data.room;
-        
-        // 🔒 SECURITY CHECK: If room is private and accessed directly via URL,
-        // we need to verify password first
-        if (!roomData.isPublic) {
-          // Check if user has already verified password for this room in this session
-          const verifiedRooms = JSON.parse(sessionStorage.getItem('verifiedPrivateRooms') || '[]');
-          const isVerified = verifiedRooms.includes(room);
-          
-          if (!isVerified) {
-            console.log("🔒 Private room accessed directly - requiring password verification");
-            setPasswordModal({
-              isOpen: true,
-              roomName: room,
-              pendingNavigation: room
-            });
-            setLoading(false);
-            return; // Don't continue with room setup until password is verified
-          }
-        }
-        
-        setRoomInfo(roomData);
+        setRoomInfo(res.data.room);
         setInfoError("");
         
         // Check if current user is the host
         if (
-          roomData.host === userInfo.id || 
-          roomData.host === userInfo.email ||
+          res.data.room.host === userInfo.id || 
+          res.data.room.host === userInfo.email ||
           (localStorage.getItem("createdRoom") === room)
         ) {
           setIsHost(true);
@@ -226,7 +142,7 @@ const StudyRoom = () => {
         setLoading(false);
         
         if (err.response?.status === 404) {
-          showError(`Room "${room}" does not exist!`);
+          alert(`Room "${room}" does not exist!`);
           navigate("/study-room");
         }
       }
@@ -262,12 +178,8 @@ const StudyRoom = () => {
     if (!socket) return;
     
     const handleRoomClosed = ({ reason }) => {
-      setAlertModal({
-        isOpen: true,
-        title: "Room Closed",
-        message: reason,
-        type: "warning"
-      });
+      alert(reason);
+      navigate("/study-room");
     };
     
     socket.on("roomClosed", handleRoomClosed);
@@ -350,22 +262,12 @@ const StudyRoom = () => {
                   className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
                   onClick={() => {
                     setRoomInput(r.name);
-                    joinRoomWithPasswordCheck(r.name);
+                    navigate(`/room/${encodeURIComponent(r.name)}`);
                   }}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-medium text-lg">{r.name}</h3>
-                    {!r.isPublic && (
-                      <svg className="w-4 h-4 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                  </div>
+                  <h3 className="font-medium text-lg mb-1">{r.name}</h3>
                   <p className="text-sm text-gray-600">
-                    {r.isPublic ? 
-                      <span className="text-green-600">Public</span> : 
-                      <span className="text-blue-600">Private • Password Required</span>
-                    } • {r.activeCount || 0} active users
+                    {r.isPublic ? "Public" : "Private"} • {r.activeCount || 0} active users
                   </p>
                 </div>
               ))}
@@ -449,57 +351,22 @@ const StudyRoom = () => {
           <button
             className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
             onClick={() => {
-              setConfirmModal({
-                isOpen: true,
-                title: "End Study Session",
-                message: "Are you sure you want to end this study session for everyone? This action cannot be undone.",
-                onConfirm: () => {
-                  if (socket) {
-                    socket.emit("endSession", { room });
-                    setTimeout(() => {
-                      navigate("/study-room");
-                    }, 500);
-                  } else {
+              if (window.confirm("Are you sure you want to end this study session for everyone?")) {
+                if (socket) {
+                  socket.emit("endSession", { room });
+                  setTimeout(() => {
                     navigate("/study-room");
-                  }
-                  setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
+                  }, 500);
+                } else {
+                  navigate("/study-room");
                 }
-              });
+              }
             }}
           >
             End Session
           </button>
         )}
       </div>
-      
-      {/* Modals */}
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        title={confirmModal.title}
-        message={confirmModal.message}
-        onConfirm={confirmModal.onConfirm}
-        onCancel={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
-        confirmText="End Session"
-        type="danger"
-      />
-      
-      <AlertModal
-        isOpen={alertModal.isOpen}
-        title={alertModal.title}
-        message={alertModal.message}
-        type={alertModal.type}
-        onClose={() => {
-          setAlertModal({ isOpen: false, title: '', message: '', type: 'info' });
-          navigate("/study-room");
-        }}
-      />
-
-      <PasswordModal
-        isOpen={passwordModal.isOpen}
-        roomName={passwordModal.roomName}
-        onSubmit={handlePasswordSubmit}
-        onCancel={() => setPasswordModal({ isOpen: false, roomName: '', pendingNavigation: null })}
-      />
     </div>
   );
 };

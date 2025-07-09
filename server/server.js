@@ -5,6 +5,7 @@ const http = require('http');
 const cors = require('cors');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth');
+const roomRoutes = require('./routes/rooms');
 
 const app = express();
 const server = http.createServer(app);
@@ -18,7 +19,16 @@ const io = new Server(server, {
     credentials: true
   }
 });
-require('./sockets/socket')(io);
+
+// Create rooms object to track active users
+const socketRooms = {};
+
+// Store io and socketRooms in app for routes to access
+app.set('io', io);
+app.set('socketRooms', socketRooms);
+
+// Initialize socket handling with the rooms object
+require('./sockets/socket')(io, socketRooms);
 
 // Middleware
 app.use(cors({
@@ -32,6 +42,7 @@ connectDB();
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/rooms', roomRoutes);
 
 // Root route for health check or friendly message
 app.get('/', (req, res) => {

@@ -1,0 +1,849 @@
+import React, { useState, useEffect, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import axios from "../utils/axios";
+import UserList from "../components/UserList";
+import Chat from "../components/Chat";
+import Timer from "../components/Timer";
+import LoginModal from "../components/LoginModal";
+import { useSocket } from "../contexts/SocketContext";
+import { useAuth } from "../contexts/AuthContext";
+
+// Toast/Notification component
+const Toast = ({ message, type = 'info', isVisible, onClose }) => {
+  if (!isVisible) return null;
+  
+  const bgColor = type === 'info' ? 'bg-blue-100 border-blue-400 text-blue-700' :
+                 type === 'success' ? 'bg-green-100 border-green-400 text-green-700' :
+                 type === 'warning' ? 'bg-yellow-100 border-yellow-400 text-yellow-700' :
+                 'bg-red-100 border-red-400 text-red-700';
+  
+  useEffect(() => {
+    if (isVisible) {
+      const timer = setTimeout(() => {
+        onClose();
+      }, 5000); // Auto-close after 5 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible, onClose]);
+  
+  return (
+    <div className={`fixed bottom-5 right-5 px-4 py-3 rounded border ${bgColor} shadow-md transition-opacity`} 
+         role="alert">
+      <div className="flex items-center">
+        <div className="py-1">
+          <p className="text-sm">{message}</p>
+        </div>
+        <div className="ml-auto pl-3">
+          <button
+            type="button"
+            className={`ml-auto -mx-1.5 -my-1.5 rounded-lg focus:ring-2 p-1.5 inline-flex h-8 w-8 ${bgColor}`}
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <span className="sr-only">Close</span>
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Custom notification modal component for important messages
+const NotificationModal = ({ isOpen, title, message, type = 'error', onClose, actionButton = null }) => {
+  if (!isOpen) return null;
+  
+  const bgColor = type === 'info' ? 'bg-blue-100 border-blue-400 text-blue-700' :
+                 type === 'success' ? 'bg-green-100 border-green-400 text-green-700' :
+                 type === 'warning' ? 'bg-yellow-100 border-yellow-400 text-yellow-700' :
+                 'bg-red-500 border-red-700 text-white';
+  
+  const iconColor = type === 'info' ? 'text-blue-500' :
+                   type === 'success' ? 'text-green-500' :
+                   type === 'warning' ? 'text-yellow-500' :
+                   'text-white';
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+      <div className={`bg-white rounded-lg p-6 max-w-md w-full shadow-2xl ${type === 'error' ? 'animate-shake' : 'animate-fadeIn'}`}>
+        <div className={`rounded-t-lg -mt-6 -mx-6 px-6 py-4 mb-4 ${type === 'error' ? 'bg-red-600 text-white' : 'bg-gray-100'}`}>
+          <div className="flex items-center">
+            {type === 'error' && (
+              <svg className={`w-8 h-8 mr-3 ${iconColor}`} fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"></path>
+              </svg>
+            )}
+            <h3 className="text-lg font-bold">{title}</h3>
+          </div>
+        </div>
+        
+        <div className="mb-6 text-center">
+          <p className="text-lg font-medium">{message}</p>
+        </div>
+        
+        <div className="flex justify-center gap-4">
+          <button 
+            className="px-6 py-2 bg-gray-300 rounded-lg hover:bg-gray-400 transition-colors font-medium"
+            onClick={onClose}
+          >
+            Close
+          </button>
+          {actionButton}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Custom confirmation dialog component
+const ConfirmDialog = ({ isOpen, title, message, onConfirm, onCancel }) => {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-sm w-full">
+        <h3 className="text-lg font-bold mb-2">{title}</h3>
+        <p className="mb-6">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button 
+            className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button 
+            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            onClick={onConfirm}
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const StudyRoom = () => {
+  // Add state for login modal
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [redirectPath, setRedirectPath] = useState('');
+  
+  // Add state for confirmation dialog
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    onCancel: () => setConfirmDialog(prev => ({...prev, isOpen: false}))
+  });
+  
+  // Add state for toast notifications
+  const [toast, setToast] = useState({
+    message: '',
+    type: 'info',
+    isVisible: false
+  });
+  
+  // Add state for notification modal
+  const [notificationModal, setNotificationModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "error",
+    actionButton: null
+  });
+  
+  // Add a ref to track if component is mounted
+  const isMounted = useRef(true);
+  const navigate = useNavigate();
+  const { roomName } = useParams();
+  const [room, setRoom] = useState(roomName || "");
+  const [isHost, setIsHost] = useState(false);
+  const [roomInfo, setRoomInfo] = useState(null);
+  const [infoError, setInfoError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [joinStatus, setJoinStatus] = useState("pending"); // pending, joined, denied
+  const socket = useSocket();
+  const { getUserInfo, loading: authLoading } = useAuth();
+  const userInfo = getUserInfo();
+  const [userName, setUserName] = useState("");
+  const [showRoomSelection, setShowRoomSelection] = useState(!roomName);
+  
+  // Set isMounted to false when component unmounts
+  // and clear any notifications on mount
+  useEffect(() => {
+    console.log("StudyRoom component mounted");
+    // Set to true on mount
+    isMounted.current = true;
+    
+    // Clear notification modal when component mounts
+    if (isMounted.current) {
+      setNotificationModal({
+        isOpen: false,
+        title: "",
+        message: "",
+        type: "error",
+        actionButton: null
+      });
+    }
+    
+    // Set to false on unmount
+    return () => {
+      console.log("StudyRoom component unmounting");
+      isMounted.current = false;
+    };
+  }, []);
+  
+  // Safe setter function that only updates state if component is mounted
+  const safeSetNotificationModal = (value) => {
+    if (isMounted.current) {
+      setNotificationModal(typeof value === 'function' ? value(notificationModal) : value);
+    }
+  };
+  
+  // Update room when roomName param changes
+  useEffect(() => {
+    setRoom(roomName || "");
+    setShowRoomSelection(!roomName);
+    
+    // Reset notification modal when URL/roomName changes
+    safeSetNotificationModal(prev => ({...prev, isOpen: false}));
+  }, [roomName]);
+  
+  // Reset notification on component mount
+  useEffect(() => {
+    // Clear any notification modals when component is first mounted
+    safeSetNotificationModal(prev => ({...prev, isOpen: false}));
+    
+    // Also clear on unmount
+    return () => {
+      // No need to set state here as isMounted.current will be false
+      // and safeSetNotificationModal won't update state
+    };
+  }, []);
+
+  // Handle room selection if no roomName in URL
+  const [availableRooms, setAvailableRooms] = useState([]);
+  const [roomInput, setRoomInput] = useState("");
+  
+  // Fetch available rooms when on the study-room page
+  useEffect(() => {
+    if (showRoomSelection) {
+      const fetchAvailableRooms = async () => {
+        try {
+          setLoading(true);
+          const token = localStorage.getItem("token");
+          const res = await axios.get(`/api/rooms`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setAvailableRooms(res.data.rooms || []);
+        } catch (err) {
+          console.error("Failed to fetch rooms:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchAvailableRooms();
+    }
+  }, [showRoomSelection]);
+  
+  // Handle form submission for room selection
+  const handleRoomSelect = async (e) => {
+    e.preventDefault();
+    
+    if (!roomInput.trim()) return;
+    
+    try {
+      // Clear any previous notification state first
+      safeSetNotificationModal({
+        isOpen: false,
+        title: "",
+        message: "",
+        type: "error",
+        actionButton: null
+      });
+      
+      // Check if the room exists
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`/api/rooms/${encodeURIComponent(roomInput.trim())}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(error => {
+        // If the room doesn't exist (404), return null
+        if (error.response && error.response.status === 404) {
+          return { data: null };
+        }
+        throw error;
+      });
+      
+      const roomExists = response.data && response.data.room;
+      
+      if (!roomExists) {
+        console.log("Room does not exist, showing modal immediately...");
+        
+        // Show modal notification that room doesn't exist
+        safeSetNotificationModal({
+          isOpen: true,
+          title: "ROOM NOT FOUND",
+          message: `Room "${roomInput.trim()}" does not exist!`,
+          type: 'error',
+          actionButton: (
+            <button 
+              className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors shadow-md"
+              onClick={() => {
+                safeSetNotificationModal(prev => ({...prev, isOpen: false}));
+                navigate('/create-room');
+              }}
+            >
+              Create New Room
+            </button>
+          )
+        });
+        
+        // Don't navigate to the non-existent room
+        return;
+      } else {
+        // Room exists, join immediately
+        navigate(`/room/${encodeURIComponent(roomInput.trim())}`);
+      }
+    } catch (error) {
+      console.error("Error checking room existence:", error);
+      
+      // Show error notification instead of navigating
+      safeSetNotificationModal({
+        isOpen: true,
+        title: "ERROR",
+        message: "An error occurred while checking if this room exists.",
+        type: 'error',
+        actionButton: null
+      });
+    }
+  };
+
+  // Fetch room details
+  useEffect(() => {
+    if (!room || showRoomSelection) {
+      return;
+    }
+    
+    const fetchRoom = async () => {
+      try {
+        setLoading(true);
+        
+        // Clear any previous notification modals
+        safeSetNotificationModal({
+          isOpen: false,
+          title: "",
+          message: "",
+          type: "error",
+          actionButton: null
+        });
+        
+        const token = localStorage.getItem("token");
+        const res = await axios.get(`/api/rooms/${encodeURIComponent(room)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(error => {
+          // If the room doesn't exist (404), throw a specific error
+          if (error.response && error.response.status === 404) {
+            const notFoundError = new Error("Room not found");
+            notFoundError.status = 404;
+            throw notFoundError;
+          }
+          throw error;
+        });
+        
+        setRoomInfo(res.data.room);
+        setInfoError("");
+        
+        // Check if this is a private room and user is allowed
+        if (res.data.room.isPublic === false) {
+          const userId = userInfo.id;
+          const isAllowed = res.data.room.allowedUsers?.includes(userId);
+          
+          if (!isAllowed) {
+            setInfoError("You do not have permission to access this private room.");
+            setJoinStatus("denied");
+            
+            // Show toast notification
+            setToast({
+              message: "You do not have permission to access this private room",
+              type: 'error',
+              isVisible: true
+            });
+            
+            // Navigate to the room selection page instead of home
+            setTimeout(() => navigate("/study-room"), 3000);
+            return;
+          }
+        }
+        
+        // Check if current user is the host
+        console.log("Host check:", {
+          roomHost: res.data.room.host,
+          userId: userInfo.id,
+          userEmail: userInfo.email
+        });
+        if (
+          res.data.room.host === userInfo.id || 
+          res.data.room.host === userInfo.email ||
+          // If the room was just created by this user in this session
+          (localStorage.getItem("createdRoom") === room)
+        ) {
+          console.log("Setting user as host");
+          setIsHost(true);
+          
+          // Let socket server know this user is the host when they join
+          if (socket) {
+            socket.emit("setRoomHost", { room, userId: userInfo.id });
+          }
+        }
+        
+        setLoading(false);
+      } catch (err) {
+        setInfoError(
+          err.response?.data?.message || "Could not fetch room info."
+        );
+        setLoading(false);
+        
+        // If room doesn't exist or another error occurred
+        if (err.status === 404 || err.response?.status === 404) {
+          console.log("Direct URL navigation: Room does not exist, showing modal immediately...");
+          
+          // Show modal notification immediately
+          safeSetNotificationModal({
+            isOpen: true,
+            title: "ROOM NOT FOUND",
+            message: `Room "${room}" does not exist!`,
+            type: 'error',
+            actionButton: (
+              <div className="flex gap-2">
+                <button 
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors shadow-md"
+                  onClick={() => {
+                    safeSetNotificationModal(prev => ({...prev, isOpen: false}));
+                    navigate('/create-room');
+                  }}
+                >
+                  Create New Room
+                </button>
+              </div>
+            )
+          });
+          
+          // Don't auto-redirect - let user choose from the modal
+        }
+      }
+    };
+    
+    fetchRoom();
+  }, [room, navigate, userInfo.id, userInfo.email]);
+
+  // Check if user is authenticated and handle login requirement
+  useEffect(() => {
+    console.log("Auth check effect running", { authLoading, userInfo });
+    
+    // If authentication check is still loading, wait
+    if (authLoading) {
+      console.log("Auth still loading, waiting...");
+      return;
+    }
+    
+    // Check if user is authenticated
+    if (!userInfo || !userInfo.id) {
+      console.log("User is not authenticated, showing login modal");
+      // Save current URL for redirect after login
+      setRedirectPath(window.location.pathname);
+      // Show login modal
+      setShowLoginModal(true);
+    } else {
+      console.log("User is authenticated:", userInfo);
+      // User is authenticated, set username
+      if (userInfo.name && userInfo.name !== 'Anonymous User') {
+        setUserName(userInfo.name);
+      }
+      
+      // Hide login modal if it was showing
+      setShowLoginModal(false);
+      
+      // Hide name prompt if it was showing - since we have authenticated user
+      setShowNamePrompt(false);
+    }
+  }, [userInfo, authLoading]);
+
+  // Show name prompt if user is not authenticated but we're allowing anonymous access
+  // Note: With our new login flow, this should rarely be used
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  
+  useEffect(() => {
+    console.log("Name prompt effect running", { authLoading, userInfo });
+    if (!authLoading && (!userInfo.isAuthenticated || !userInfo.name || userInfo.name === 'Anonymous User')) {
+      setShowNamePrompt(true);
+    } else {
+      setShowNamePrompt(false);
+    }
+  }, [authLoading, userInfo]);
+  
+  // Add error boundary effect to catch rendering errors
+  const [hasError, setHasError] = useState(false);
+  const [errorInfo, setErrorInfo] = useState(null);
+
+  useEffect(() => {
+    // Add window error listener
+    const handleError = (event) => {
+      console.error("Global error caught:", event.error);
+      setHasError(true);
+      setErrorInfo(event.error?.toString() || "Unknown error occurred");
+      
+      // Show error in notification modal
+      safeSetNotificationModal({
+        isOpen: true,
+        title: "Error",
+        message: `An error occurred: ${event.error?.toString() || "Unknown error"}`,
+        type: "error"
+      });
+      
+      // Prevent default browser error handling
+      event.preventDefault();
+    };
+    
+    window.addEventListener('error', handleError);
+    
+    return () => {
+      window.removeEventListener('error', handleError);
+    };
+  }, []);
+  
+  // If we caught an error, display error UI
+  if (hasError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-5 bg-gray-100">
+        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
+          <h2 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h2>
+          <p className="text-gray-700 mb-4">
+            We encountered an error while loading this page.
+          </p>
+          {errorInfo && (
+            <pre className="bg-gray-100 p-3 rounded text-sm mb-4 overflow-auto max-h-40">
+              {errorInfo}
+            </pre>
+          )}
+          <div className="flex flex-col gap-2">
+            <button 
+              onClick={() => window.location.reload()}
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Reload Page
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+            >
+              Go to Home Page
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  console.log("StudyRoom render - final return", { 
+    room, 
+    userName, 
+    showLoginModal, 
+    authLoading,
+    userInfo: userInfo?.id ? 'authenticated' : 'not authenticated',
+    showNamePrompt,
+    joinStatus
+  });
+  
+  // If authentication is loading, show a loading indicator
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center p-8">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mb-4"></div>
+          <p className="text-lg text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  // If user is not authenticated and login modal should be shown
+  if (showLoginModal) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <LoginModal 
+          isOpen={showLoginModal}
+          onClose={() => {
+            setShowLoginModal(false);
+            // If user closes modal without logging in, redirect to home
+            if (!userInfo || !userInfo.id) {
+              navigate('/');
+            }
+          }}
+          redirectAfterLogin={redirectPath}
+        />
+      </div>
+    );
+  }
+  
+  // Show room selection when accessed via /study-room
+  if (showRoomSelection) {
+    console.log("Rendering room selection UI");
+    return (
+      <div className="max-w-4xl mx-auto p-6 min-h-screen bg-gray-50">
+        <div className="bg-white shadow-lg rounded-lg p-6 mb-6">
+          <h1 className="text-3xl font-bold mb-6 text-center text-purple-700">
+            Study Rooms
+          </h1>
+          
+          <form onSubmit={handleRoomSelect} className="mb-8">
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                value={roomInput}
+                onChange={(e) => setRoomInput(e.target.value)}
+                placeholder="Enter room name"
+                className="flex-1 p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <button
+                type="submit"
+                className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 transition-colors"
+                disabled={loading}
+              >
+                Join
+              </button>
+            </div>
+          </form>
+          
+          <h2 className="text-xl font-semibold mb-4">Available Rooms:</h2>
+          
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500 mb-2"></div>
+              <p>Loading rooms...</p>
+            </div>
+          ) : availableRooms.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">No active study rooms available.</p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {availableRooms.map((r) => (
+                <div
+                  key={r._id}
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                  onClick={() => {
+                    setRoomInput(r.name);
+                    navigate(`/room/${encodeURIComponent(r.name)}`);
+                  }}
+                >
+                  <h3 className="font-medium text-lg mb-1">{r.name}</h3>
+                  <p className="text-sm text-gray-600">
+                    {r.isPublic ? "Public" : "Private"} • Created by{" "}
+                    {r.hostName || "Unknown"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        
+        <div className="text-center">
+          <button
+            onClick={() => navigate("/create-room")}
+            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 transition-colors shadow-md"
+          >
+            Create a New Room
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  // Instead of showing the name prompt, show the login modal
+  if (showNamePrompt) {
+    console.log("Showing name prompt or login requirement");
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="bg-white p-6 rounded-lg shadow-md max-w-md w-full">
+          <h2 className="text-xl font-bold mb-4 text-center">Login Required</h2>
+          <p className="text-gray-600 mb-4 text-center">
+            You need to login or sign up to join this room.
+          </p>
+          
+          <div className="flex flex-col gap-4">
+            <button 
+              onClick={() => {
+                setShowLoginModal(true);
+                setRedirectPath(window.location.pathname);
+              }}
+              className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+            >
+              Login or Sign Up
+            </button>
+            <button
+              className="text-gray-600 hover:text-gray-800"
+              onClick={() => navigate('/')}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (joinStatus === "denied") {
+    console.log("Access denied to room");
+    return (
+      <div className="max-w-2xl mx-auto p-4">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          <p className="font-bold">Access Denied</p>
+          <p>{infoError}</p>
+          <p className="mt-2">Redirecting to room selection page in a few seconds...</p>
+        </div>
+        <div className="flex justify-center mt-4">
+          <button
+            onClick={() => navigate("/study-room")}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Go to Room Selection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Main component render
+  return (
+    <div className="max-w-2xl mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-2">Room: {room}</h1>
+      {roomInfo && (
+        <div className="mb-4 bg-white shadow rounded p-4">
+          <h2 className="font-semibold text-lg mb-2">Room Information</h2>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="text-gray-600">Name:</div>
+            <div>{roomInfo.name}</div>
+            
+            <div className="text-gray-600">Status:</div>
+            <div>{roomInfo.isPublic ? 
+              <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">Public</span> : 
+              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">Private</span>}
+            </div>
+            
+            <div className="text-gray-600">Your Role:</div>
+            <div>{isHost ? 
+              <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded-full text-xs font-medium">Host</span> : 
+              <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium">Member</span>}
+            </div>
+            
+            <div className="text-gray-600">Joined As:</div>
+            <div>{userName || userInfo.name}</div>
+          </div>
+        </div>
+      )}
+      
+      {infoError && <div className="text-red-500 text-sm mb-2">{infoError}</div>}
+      
+      {/* Only render components when we have the required props */}
+      {room && <UserList room={room} />}
+      {room && <Timer room={room} isHost={isHost} />}
+      {room && userName && <Chat room={room} userName={userName || userInfo.name} />}
+      
+      <div className="mt-6 flex justify-between">
+        <button
+          className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+          onClick={() => {
+            if (socket) {
+              // Emit leaveRoom event with room name to properly clean up
+              socket.emit("leaveRoom", { room });
+              // Wait a moment for the server to process the leave event
+              setTimeout(() => navigate("/study-room"), 100);
+            } else {
+              navigate("/study-room");
+            }
+          }}
+        >
+          Leave Room
+        </button>
+        
+        {isHost && (
+          <button
+            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            onClick={() => {
+              setConfirmDialog({
+                isOpen: true,
+                title: "End Session",
+                message: "Are you sure you want to end this study session for everyone?",
+                onConfirm: () => {
+                  // Notify server to end the session and delete the room
+                  if (socket) {
+                    // Only use endSession - we don't need roomDeleted too
+                    socket.emit("endSession", { room });
+                    
+                    // Close the dialog
+                    setConfirmDialog({...confirmDialog, isOpen: false});
+                    
+                    // Wait a moment for server processing before navigating away
+                    setTimeout(() => {
+                      navigate("/study-room");
+                    }, 500);
+                  } else {
+                    // If socket isn't connected, just navigate away
+                    setConfirmDialog({...confirmDialog, isOpen: false});
+                    navigate("/study-room");
+                  }
+                }
+              });
+            }}
+          >
+            End Session
+          </button>
+        )}
+      </div>
+      
+      {/* Toast notification */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.isVisible}
+        onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
+      />
+      
+      <ConfirmDialog 
+        isOpen={confirmDialog.isOpen} 
+        title={confirmDialog.title} 
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
+      
+      {/* Notification modal */}
+      <NotificationModal
+        isOpen={notificationModal.isOpen}
+        title={notificationModal.title}
+        message={notificationModal.message}
+        type={notificationModal.type}
+        actionButton={notificationModal.actionButton}
+        onClose={() => setNotificationModal(prev => ({ ...prev, isOpen: false }))}
+      />
+      
+      {/* Login modal - always render it but control visibility with isOpen */}
+      <LoginModal 
+        isOpen={showLoginModal}
+        onClose={() => {
+          setShowLoginModal(false);
+          // If user closes modal without logging in, redirect to home
+          if (!userInfo || !userInfo.id) {
+            navigate('/');
+          }
+        }}
+        redirectAfterLogin={redirectPath}
+      />
+    </div>
+  );
+};
+
+export default StudyRoom;

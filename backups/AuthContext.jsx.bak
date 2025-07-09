@@ -32,6 +32,8 @@ export const AuthProvider = ({ children }) => {
               headers: { Authorization: `Bearer ${token}` }
             });
             
+            console.log("AuthContext: Server verified token", res.data);
+            
             setUser({
               ...res.data,
               id: decoded.user?.id || res.data._id,
@@ -39,7 +41,7 @@ export const AuthProvider = ({ children }) => {
               token
             });
           } catch (apiErr) {
-            console.log('API verification unavailable, using decoded token only:', apiErr.message);
+            console.log('AuthContext: API verification unavailable, using decoded token only:', apiErr.message);
             
             // If the API endpoint isn't available, still use the decoded token
             setUser({
@@ -51,12 +53,12 @@ export const AuthProvider = ({ children }) => {
           }
           
         } catch (err) {
-          console.error('Token verification error:', err);
+          console.error('AuthContext: Token verification error:', err);
           localStorage.removeItem('token');
         }
       } catch (err) {
         setError('Failed to load user data');
-        console.error('Auth error:', err);
+        console.error('AuthContext: Auth error:', err);
       } finally {
         setLoading(false);
       }
@@ -85,6 +87,7 @@ export const AuthProvider = ({ children }) => {
   };
   
   const refreshAuth = () => {
+    console.log("AuthContext: Refreshing auth state");
     setRefreshTrigger(prev => prev + 1);
   };
 
@@ -101,6 +104,7 @@ export const AuthProvider = ({ children }) => {
             isAuthenticated: true
           };
         } catch (err) {
+          console.error("AuthContext: Error decoding token in getUserInfo", err);
           return { name: 'Anonymous User', isAuthenticated: false };
         }
       }
