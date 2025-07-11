@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useSocket } from "../contexts/SocketContext";
 import { useAuth } from "../contexts/AuthContext";
 import axios from "../utils/axios";
-import PasswordModal from "./PasswordModal";
 
 // RoomJoin emits 'joinRoom' with userName and room
 const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
@@ -13,7 +12,6 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
   const [showRoomList, setShowRoomList] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [passwordModal, setPasswordModal] = useState({ isOpen: false, roomName: '', roomData: null });
   
   const socket = useSocket();
   const { getUserInfo } = useAuth();
@@ -56,6 +54,22 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
     fetchAvailableRooms();
   }, [fetchAvailableRooms]);
 
+  // Listen for room changes to refresh the room list
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleRoomChanged = ({ room }) => {
+      console.log(`Room ${room} changed - refreshing room list in RoomJoin`);
+      fetchAvailableRooms();
+    };
+
+    socket.on('roomChanged', handleRoomChanged);
+
+    return () => {
+      socket.off('roomChanged', handleRoomChanged);
+    };
+  }, [socket, fetchAvailableRooms]);
+
   // Handle room selection - THIS IS THE CRITICAL FUNCTION
   const handleRoomSelect = (room) => {
     console.log("🎯 ROOM CARD CLICKED - SIMPLE TEST!");
@@ -67,51 +81,13 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
       return;
     }
     
-    if (room.isPublic) {
-      console.log("✅ Public room - joining directly");
-      setRoomInput(room.name);
-      setRoom(room.name);
-      setUserName(nameInput);
-      setIsHost(false);
-      socket.emit("joinRoom", { room: room.name, userName: nameInput });
-    } else {
-      console.log("🔒 Private room - opening password modal");
-      setPasswordModal({
-        isOpen: true,
-        roomName: room.name,
-        roomData: room
-      });
-    }
-  };
-
-  // Handle password submission
-  const handlePasswordSubmit = async (password) => {
-    const { roomName, roomData } = passwordModal;
-    console.log("🔑 Password submitted for room:", roomName);
-    
-    try {
-      const token = localStorage.getItem("token");
-      const response = await axios.post(
-        `/api/rooms/${encodeURIComponent(roomName)}/verify-password`,
-        { password },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      if (response.data.success) {
-        console.log("✅ Password correct - joining room");
-        setPasswordModal({ isOpen: false, roomName: '', roomData: null });
-        setRoomInput(roomName);
-        setRoom(roomName);
-        setUserName(nameInput);
-        setIsHost(false);
-        socket.emit("joinRoom", { room: roomName, userName: nameInput });
-      } else {
-        alert("Incorrect password!");
-      }
-    } catch (error) {
-      console.error("Password verification failed:", error);
-      alert("Password verification failed!");
-    }
+    // All rooms are now public - join directly
+    console.log("✅ Public room - joining directly");
+    setRoomInput(room.name);
+    setRoom(room.name);
+    setUserName(nameInput);
+    setIsHost(false);
+    socket.emit("joinRoom", { room: room.name, userName: nameInput });
   };
 
   return (
@@ -179,16 +155,9 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{room.name}</span>
-                        {!room.isPublic && (
-                          <span className="text-orange-600 text-xs bg-orange-100 px-2 py-1 rounded">
-                            🔒 Private
-                          </span>
-                        )}
-                        {room.isPublic && (
-                          <span className="text-green-600 text-xs bg-green-100 px-2 py-1 rounded">
-                            🌍 Public
-                          </span>
-                        )}
+                        <span className="text-green-600 text-xs bg-green-100 px-2 py-1 rounded">
+                          🌍 Public
+                        </span>
                       </div>
                       <span className="text-sm text-gray-500">
                         {room.activeCount || 0} users
@@ -201,14 +170,6 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
           )}
         </div>
       )}
-
-      {/* Password Modal */}
-      <PasswordModal
-        isOpen={passwordModal.isOpen}
-        roomName={passwordModal.roomName}
-        onSubmit={handlePasswordSubmit}
-        onCancel={() => setPasswordModal({ isOpen: false, roomName: '', roomData: null })}
-      />
     </div>
   );
 };

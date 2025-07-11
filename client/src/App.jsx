@@ -6,11 +6,13 @@ import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import CreateRoom from "./pages/CreateRoom";
+import GlobalRoomHandler from "./components/GlobalRoomHandler";
 
 function App() {
   return (
     <>
       <Navbar />
+      <GlobalRoomHandler />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/study-room" element={<StudyRoom />} />

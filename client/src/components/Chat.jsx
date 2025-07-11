@@ -12,13 +12,15 @@ const Chat = ({ room, userName }) => {
 
   useEffect(() => {
     if (!socket || !room) return;
+    
     const handleMessage = (msg) => {
+      console.log(`📨 Chat: Received message from ${msg.user}:`, msg.text);
       setMessages((prev) => [...prev, msg]);
       new Audio("/sounds/message.mp3").play();
     };
     
     const handleHistory = (history) => {
-      console.log(`Received ${history.length} messages in chat history`);
+      console.log(`📚 Chat: Received ${history.length} messages in chat history`);
       setMessages(history.map(m => ({
         ...m,
         timestamp: m.createdAt || m.timestamp
@@ -26,17 +28,22 @@ const Chat = ({ room, userName }) => {
     };
     
     // Set up event listeners
+    console.log(`🔗 Chat: Setting up message listeners for room ${room}`);
     socket.on("chat:message", handleMessage);
     socket.on("chat:history", handleHistory);
     
-    // Request chat history explicitly when component mounts
-    console.log(`Requesting chat history for room ${room}`);
-    socket.emit("requestChatHistory", { room });
+    // Request chat history after a delay to ensure user has joined the room
+    const historyTimer = setTimeout(() => {
+      console.log(`📨 Chat: Requesting chat history for room ${room}`);
+      socket.emit("requestChatHistory", { room });
+    }, 1500); // 1.5 second delay
     
     // Cleanup function to remove listeners
     return () => {
+      console.log(`🔌 Chat: Cleaning up listeners for room ${room}`);
       socket.off("chat:message", handleMessage);
       socket.off("chat:history", handleHistory);
+      clearTimeout(historyTimer);
     };
   }, [socket, room]);
 
@@ -57,6 +64,7 @@ const Chat = ({ room, userName }) => {
       timestamp: new Date().toISOString(),
     };
     
+    console.log(`📤 Chat: Sending message to room ${room}:`, message.text);
     socket.emit("chat:message", { room, message });
     
     // Add message locally for immediate display with a special flag

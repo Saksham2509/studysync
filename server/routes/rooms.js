@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const Room = require('../models/Room');
 const jwt = require('jsonwebtoken');
-const { verifyRoomPassword } = require('../controllers/roomController');
 
 // Middleware to check JWT
 function auth(req, res, next) {
@@ -17,32 +16,13 @@ function auth(req, res, next) {
   }
 }
 
-// POST /api/rooms/:roomName/verify-password - verify password for private room
-router.post('/:roomName/verify-password', auth, async (req, res) => {
-  try {
-    const { roomName } = req.params;
-    const { password } = req.body;
-    
-    const result = await verifyRoomPassword(roomName, password);
-    
-    if (result.success) {
-      res.json({ success: true, message: 'Password correct' });
-    } else {
-      res.status(401).json({ success: false, message: result.error });
-    }
-  } catch (error) {
-    console.error('Password verification error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
-
 // GET /api/rooms - get all rooms
 router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user.id || req.user._id || req.user.email;
     
-    // Get ALL rooms (both public and private)
-    const rooms = await Room.find({}).select('-password'); // Exclude password field for security
+    // Get all public rooms
+    const rooms = await Room.find({});
     
     // Get socket.io instance from app to access active users
     const io = req.app.get('io');
@@ -165,30 +145,16 @@ router.get('/', auth, async (req, res) => {
 
 // POST /api/rooms - create a room
 router.post('/', auth, async (req, res) => {
-  const { name, isPublic = true, password, allowedUsers = [] } = req.body;
+  const { name } = req.body;
   if (!name) return res.status(400).json({ message: 'Room name required' });
-  
-  // Validation: Private rooms must have a password
-  if (!isPublic && (!password || password.trim() === '')) {
-    return res.status(400).json({ message: 'Private rooms must have a password' });
-  }
   
   try {
     const exists = await Room.findOne({ name });
     if (exists) return res.status(409).json({ message: 'Room name already exists' });
     
-    // Hash password if provided for private room
-    let hashedPassword = null;
-    if (!isPublic && password) {
-      const bcrypt = require('bcrypt');
-      hashedPassword = await bcrypt.hash(password, 10);
-    }
-    
     const room = new Room({
       name,
-      isPublic,
-      password: hashedPassword,
-      allowedUsers: isPublic ? [] : allowedUsers,
+      isPublic: true, // All rooms are now public
       host: req.user.id || req.user._id || req.user.email,
       users: [],
     });

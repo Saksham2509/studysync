@@ -14,7 +14,9 @@ const UserList = ({ room }) => {
     
     // Handler for user list updates
     const handleRoomUsers = (userList) => {
-      console.log("Received updated user list:", userList);
+      console.log("📥 UserList: Received updated user list:", userList);
+      console.log("📊 UserList: Current room:", room);
+      console.log("🔍 UserList: Current userInfo:", userInfo);
       
       // Make sure there are no duplicates by unique ID
       const uniqueUsers = [];
@@ -53,18 +55,26 @@ const UserList = ({ room }) => {
         console.log(`Adding current user to displayed list: ${currentUserName}`);
       }
       
+      console.log("✅ UserList: Final unique users to display:", uniqueUsers);
       setUsers(uniqueUsers);
     };
     
     // Listen for user list updates
+    console.log("🔗 UserList: Setting up roomUsers listener for room:", room);
     socket.on("roomUsers", handleRoomUsers);
     
-    // Request current user list when mounting
-    socket.emit("requestUserList", { room });
-    console.log("Requesting user list for room:", room);
+    // Request current user list after a short delay to ensure joinRoom has been processed
+    console.log("📨 UserList: Will request user list for room after delay:", room);
+    const requestTimer = setTimeout(() => {
+      console.log("📨 UserList: Now requesting user list for room:", room);
+      socket.emit("requestUserList", { room });
+    }, 1000); // 1 second delay
     
     // Cleanup listener on unmount
-    return () => socket.off("roomUsers", handleRoomUsers);
+    return () => {
+      socket.off("roomUsers", handleRoomUsers);
+      clearTimeout(requestTimer);
+    };
   }, [socket, room, userInfo]);
 
   return (

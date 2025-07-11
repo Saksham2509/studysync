@@ -9,9 +9,9 @@ export default function Navbar() {
       <Link to="/" className="text-xl font-bold">StudySync</Link>
       <div className="flex space-x-4 items-center">
         <Link to="/" className="hover:text-gray-300">Home</Link>
-        <Link to="/create-room" className="hover:text-gray-300">Create Room</Link>
         {isAuthenticated ? (
           <>
+            <Link to="/create-room" className="hover:text-gray-300">Create Room</Link>
             <span className="text-sm">{user?.name || 'User'}</span>
             <button 
               onClick={logout} 

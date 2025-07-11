@@ -7,7 +7,9 @@ module.exports = (io, next) => {
   }
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    io.user = decoded;
+    // Extract user data from nested structure
+    io.user = decoded.user;  // Extract the nested user object
+    io.user.isAuthenticated = true;  // Mark as authenticated
     return next();
   } catch (err) {
     return next(new Error('Authentication error: Invalid token'));
