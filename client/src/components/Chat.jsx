@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSocket } from "../contexts/SocketContext";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -12,35 +12,33 @@ const Chat = ({ room, userName }) => {
 
   useEffect(() => {
     if (!socket || !room) return;
-    
-    const handleMessage = (msg) => {
-      console.log(`📨 Chat: Received message from ${msg.user}:`, msg.text);
-      setMessages((prev) => [...prev, msg]);
-      new Audio("/sounds/message.mp3").play();
+
+    const handleMessage = (message) => {
+      // Remove optimistic message if it exists
+      setMessages(prev => {
+        // Filter out optimistic message with same text and timestamp proximity
+        const filteredMessages = prev.filter(msg => 
+          !(msg.isOptimistic && 
+            msg.text === message.text && 
+            msg.user === message.user &&
+            Math.abs(new Date(msg.timestamp).getTime() - new Date(message.timestamp || Date.now()).getTime()) < 5000)
+        );
+        return [...filteredMessages, message];
+      });
     };
-    
+
     const handleHistory = (history) => {
-      console.log(`📚 Chat: Received ${history.length} messages in chat history`);
-      setMessages(history.map(m => ({
-        ...m,
-        timestamp: m.createdAt || m.timestamp
-      })));
+      setMessages(history || []);
     };
-    
-    // Set up event listeners
-    console.log(`🔗 Chat: Setting up message listeners for room ${room}`);
+
     socket.on("chat:message", handleMessage);
     socket.on("chat:history", handleHistory);
     
-    // Request chat history after a delay to ensure user has joined the room
     const historyTimer = setTimeout(() => {
-      console.log(`📨 Chat: Requesting chat history for room ${room}`);
       socket.emit("requestChatHistory", { room });
-    }, 1500); // 1.5 second delay
+    }, 1500);
     
-    // Cleanup function to remove listeners
     return () => {
-      console.log(`🔌 Chat: Cleaning up listeners for room ${room}`);
       socket.off("chat:message", handleMessage);
       socket.off("chat:history", handleHistory);
       clearTimeout(historyTimer);
@@ -54,133 +52,140 @@ const Chat = ({ room, userName }) => {
   const sendMessage = (e) => {
     e.preventDefault();
     if (!input.trim() || !socket) return;
-    
-    // Use the authenticated user name from the JWT if available
-    const message = {
-      user: userInfo.name || userName, 
-      userId: userInfo.id,
-      isAuthenticated: userInfo.isAuthenticated,
-      text: input,
+
+    const messageData = {
+      room,
+      message: {
+        text: input.trim(),
+        user: userName || userInfo?.name || "Anonymous",
+        userId: userInfo?.id || null,
+        isAuthenticated: userInfo?.isAuthenticated || false,
+      }
+    };
+
+    // Optimistically add message to local state for immediate feedback
+    const optimisticMessage = {
+      ...messageData.message,
       timestamp: new Date().toISOString(),
+      isOptimistic: true
     };
-    
-    console.log(`📤 Chat: Sending message to room ${room}:`, message.text);
-    socket.emit("chat:message", { room, message });
-    
-    // Add message locally for immediate display with a special flag
-    // This helps avoid delay before server echoes the message back
-    const localMessage = { 
-      ...message, 
-      isLocalEcho: true,  // Flag to identify this as a local echo
-    };
-    setMessages(prev => [...prev, localMessage]);
+    setMessages(prev => [...prev, optimisticMessage]);
+
+    socket.emit("chat:message", messageData);
     setInput("");
   };
 
+  const formatTimestamp = (timestamp) => {
+    return new Date(timestamp).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
   return (
-    <div className="bg-white rounded-lg shadow-lg p-4 flex flex-col h-80 mb-4 border border-gray-200">
-      <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-200">
-        <h3 className="font-semibold text-lg text-gray-700">
-          <div className="flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-            Room Chat
+    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+      {/* Chat Header */}
+      <div className="bg-gradient-to-r from-blue-500 to-gray-600 text-white p-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.001 8.001 0 01-7.022-4.152A2.978 2.978 0 003 15.5c0-1.65 1.35-3 3-3h.5c.255 0 .507-.035.75-.1A9.967 9.967 0 0112 12c0 1.742-.449 3.378-1.238 4.8A2.976 2.976 0 0113.5 18.5c0-1.65 1.35-3 3-3h.5c1.65 0 3 1.35 3 3 0 1.65-1.35 3-3 3a2.978 2.978 0 01-2.978-1.848A8.001 8.001 0 0121 12z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-semibold">Study Chat</h3>
+              <p className="text-xs text-white/80">Stay focused together</p>
+            </div>
           </div>
-        </h3>
-        <div className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">
-          {messages.length} messages
+          <div className="flex items-center space-x-2">
+            <div className="bg-white/20 text-white px-2 py-1 rounded-full text-xs font-medium">
+              {messages.length}
+            </div>
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          </div>
         </div>
       </div>
       
-      <div className="flex-1 overflow-y-auto mb-3 px-1 space-y-1">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-            <p>No messages yet. Start the conversation!</p>
-          </div>
-        ) : (
-          messages.map((msg, idx) => {
-            // Determine if this is a user's own message
-            const isCurrentUser = (userInfo.id && msg.userId === userInfo.id) || 
-                                 (!userInfo.id && msg.isLocalEcho);
-            
-            // Make sure we have a timestamp - use createdAt or timestamp or current time
-            const messageTime = msg.timestamp || msg.createdAt || new Date().toISOString();
-            
-            // Generate a unique color for each user based on their name or ID
-            const colorClasses = [
-              'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500', 
-              'bg-yellow-500', 'bg-red-500', 'bg-indigo-500', 'bg-orange-500'
-            ];
-            const textColorClasses = [
-              'text-blue-700', 'text-green-700', 'text-purple-700', 'text-pink-700', 
-              'text-yellow-700', 'text-red-700', 'text-indigo-700', 'text-orange-700'
-            ];
-            
-            // Generate a consistent color for each user based on their ID
-            const colorIndex = (msg.userId || msg.user || '')
-              .split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colorClasses.length;
-            
-            const userColor = isCurrentUser ? 'text-white' : textColorClasses[colorIndex];
-            
-            return (
-              <div 
-                key={idx} 
-                className={`px-3 py-2 rounded-lg max-w-[85%] mb-2 ${
-                  isCurrentUser 
-                  ? "ml-auto bg-blue-500 text-white" 
-                  : "bg-gray-100 text-gray-800"
-                } ${msg.isLocalEcho ? "opacity-80" : ""}`}
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <div 
-                    className={`text-sm font-semibold ${
-                      isCurrentUser ? "text-blue-200" : 
-                      msg.isAuthenticated ? userColor : "text-gray-600"
-                    }`}
-                    title={msg.isAuthenticated ? "Verified User" : "Unverified User"}
-                  >
-                    {isCurrentUser ? "You" : msg.user || "Unknown User"}
-                    {msg.isAuthenticated && (
-                      <span className="ml-1 text-xs">
-                        ✓
-                      </span>
+      <div className="h-80 flex flex-col">
+        <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-2">
+          {messages.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.001 8.001 0 01-7.022-4.152A2.978 2.978 0 003 15.5c0-1.65 1.35-3 3-3h.5c.255 0 .507-.035.75-.1A9.967 9.967 0 0112 12c0 1.742-.449 3.378-1.238 4.8A2.976 2.976 0 0113.5 18.5c0-1.65 1.35-3 3-3h.5c1.65 0 3 1.35 3 3 0 1.65-1.35 3-3 3a2.978 2.978 0 01-2.978-1.848A8.001 8.001 0 0121 12z" />
+              </svg>
+              <p className="text-sm">No messages yet</p>
+              <p className="text-xs text-gray-400">Start the conversation!</p>
+            </div>
+          ) : (
+            messages.map((msg, index) => {
+              const isOwnMessage = (msg.userId && msg.userId === userInfo?.id) || 
+                                  (msg.user === (userName || userInfo?.name)) ||
+                                  msg.isOptimistic;
+              
+              return (
+                <div key={index} className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl shadow-sm ${
+                    isOwnMessage 
+                      ? 'bg-blue-500 text-white rounded-br-md' 
+                      : 'bg-white text-gray-900 rounded-bl-md border border-gray-200'
+                  }`}>
+                    {!isOwnMessage && (
+                      <div className={`text-xs font-medium mb-1 ${
+                        msg.isAuthenticated ? 'text-blue-600' : 'text-gray-600'
+                      }`}>
+                        {msg.user}
+                      </div>
                     )}
-                  </div>
-                  <div className={`text-xs ${isCurrentUser ? "text-blue-200" : "text-gray-500"} ml-2`}>
-                    {messageTime && new Date(messageTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    <p className="text-sm break-words leading-relaxed">{msg.text}</p>
+                    <div className={`text-xs mt-1 ${
+                      isOwnMessage ? 'text-blue-100' : 'text-gray-500'
+                    } flex items-center justify-end space-x-1`}>
+                      <span>
+                        {formatTimestamp(msg.timestamp || msg.createdAt || new Date().toISOString())}
+                      </span>
+                      {isOwnMessage && (
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="break-words">{msg.text}</div>
-              </div>
-            );
-          })
-        )}
-        <div ref={messagesEndRef} />
+              );
+            })
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+        
+        <div className="bg-white border-t border-gray-200 p-4">
+          <form onSubmit={sendMessage} className="flex gap-3 items-end">
+            <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2 focus-within:bg-gray-50 transition-colors">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type a message..."
+                className="w-full bg-transparent text-sm focus:outline-none placeholder-gray-500"
+                maxLength={500}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className={`p-2 rounded-full transition-all transform hover:scale-105 ${
+                input.trim() 
+                  ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </form>
+        </div>
       </div>
-      
-      <form className="flex gap-2 mt-auto relative" onSubmit={sendMessage}>
-        <input
-          className="border border-gray-300 p-3 pr-12 rounded-lg flex-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message..."
-          autoComplete="off"
-        />
-        <button
-          className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-lg transition-colors duration-200 flex items-center absolute right-1 top-1/2 transform -translate-y-1/2"
-          type="submit"
-          disabled={!input.trim()}
-          title="Send message"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-          </svg>
-        </button>
-      </form>
     </div>
   );
 };

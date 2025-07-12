@@ -11,7 +11,8 @@ const RoomSchema = new mongoose.Schema({
     isAuthenticated: Boolean,
     joinedAt: Date
   }],
-  isPublic: { type: Boolean, default: true }, // Always true now, kept for backward compatibility
+  isPublic: { type: Boolean, default: true },
+  password: { type: String, default: null }, // Room password for private rooms
   createdAt: { type: Date, default: Date.now },
   lastActive: { type: Date, default: Date.now }
 });

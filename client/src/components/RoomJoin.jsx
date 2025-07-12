@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useSocket } from "../contexts/SocketContext";
-import { useAuth } from "../contexts/AuthContext";
-import axios from "../utils/axios";
+import { useSocket } from '../contexts/SocketContext';
+import { useAuth } from '../contexts/AuthContext';
+import axios from '../utils/axios';
 
 // RoomJoin emits 'joinRoom' with userName and room
 const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
@@ -22,7 +22,7 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
     setRoom(roomInput);
     setUserName(nameInput);
     setIsHost(host);
-    // Emit userName and room to backend, only if socket is ready
+    // Send userName and room to backend
     socket.emit("joinRoom", { room: roomInput, userName: nameInput });
   };
 
@@ -77,7 +77,7 @@ const RoomJoin = ({ setRoom, setIsHost, setUserName }) => {
     console.log("Is Public:", room.isPublic);
     
     if (!nameInput.trim()) {
-      alert("Please enter your name first!");
+      setError("Please enter your name first!");
       return;
     }
     

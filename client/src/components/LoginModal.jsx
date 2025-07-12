@@ -4,6 +4,7 @@ import axios from "../utils/axios";
 import { useAuth } from "../contexts/AuthContext";
 
 const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,17 +19,17 @@ const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
     e.preventDefault();
     setError("");
     
-    if (!email || !password) {
+    if (!email || !password || (!isLogin && !name)) {
       setError("Please fill in all fields");
       return;
     }
 
     try {
       setLoading(true);
-      const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
+      const endpoint = isLogin ? "/api/auth/login" : "/api/auth/signup";
       const payload = isLogin 
         ? { email, password } 
-        : { name: email.split("@")[0], email, password };
+        : { name, email, password };
         
       const response = await axios.post(endpoint, payload);
 
@@ -64,7 +65,7 @@ const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
           </svg>
         </button>
         
-        <h2 className="text-2xl font-bold text-purple-700 mb-6 text-center">
+        <h2 className="text-2xl font-bold text-blue-700 mb-6 text-center">
           {isLogin ? "Login to StudySync" : "Create an Account"}
         </h2>
         
@@ -75,6 +76,23 @@ const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
         )}
         
         <form onSubmit={handleSubmit}>
+          {!isLogin && (
+            <div className="mb-4">
+              <label htmlFor="name" className="block text-gray-700 text-sm font-medium mb-1">
+                Full Name
+              </label>
+              <input
+                type="text"
+                id="name"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter your full name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required={!isLogin}
+              />
+            </div>
+          )}
+          
           <div className="mb-4">
             <label htmlFor="email" className="block text-gray-700 text-sm font-medium mb-1">
               Email Address
@@ -82,7 +100,7 @@ const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
             <input
               type="email"
               id="email"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter your email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -97,7 +115,7 @@ const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
             <input
               type="password"
               id="password"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter your password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -107,7 +125,7 @@ const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
           
           <button
             type="submit"
-            className="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors"
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
             disabled={loading}
           >
             {loading ? (
@@ -126,8 +144,14 @@ const LoginModal = ({ isOpen, onClose, redirectAfterLogin }) => {
         
         <div className="mt-4 text-center text-sm">
           <button 
-            onClick={() => setIsLogin(!isLogin)} 
-            className="text-purple-600 hover:underline"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError("");
+              setName("");
+              setEmail("");
+              setPassword("");
+            }} 
+            className="text-blue-600 hover:underline"
           >
             {isLogin ? "Need an account? Sign up" : "Already have an account? Login"}
           </button>

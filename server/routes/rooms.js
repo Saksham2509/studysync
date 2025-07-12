@@ -145,8 +145,13 @@ router.get('/', auth, async (req, res) => {
 
 // POST /api/rooms - create a room
 router.post('/', auth, async (req, res) => {
-  const { name } = req.body;
+  const { name, isPublic = true, password } = req.body;
   if (!name) return res.status(400).json({ message: 'Room name required' });
+  
+  // Validate password for private rooms
+  if (!isPublic && !password) {
+    return res.status(400).json({ message: 'Password required for private rooms' });
+  }
   
   try {
     const exists = await Room.findOne({ name });
@@ -154,11 +159,13 @@ router.post('/', auth, async (req, res) => {
     
     const room = new Room({
       name,
-      isPublic: true, // All rooms are now public
+      isPublic,
+      password: isPublic ? null : password, // Only store password for private rooms
       host: req.user.id || req.user._id || req.user.email,
       users: [],
     });
     await room.save();
+    console.log(`Room created: ${name} (${isPublic ? 'Public' : 'Private'}) by ${req.user.id}`);
     res.status(201).json({ message: 'Room created', room });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
@@ -171,6 +178,32 @@ router.get('/:name', auth, async (req, res) => {
     const room = await Room.findOne({ name: req.params.name });
     if (!room) return res.status(404).json({ message: 'Room not found' });
     res.json({ room });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// POST /api/rooms/:name/verify-password - verify password for private room
+router.post('/:name/verify-password', auth, async (req, res) => {
+  try {
+    const { password } = req.body;
+    const room = await Room.findOne({ name: req.params.name });
+    
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+    
+    // Public rooms don't need password
+    if (room.isPublic) {
+      return res.json({ success: true, message: 'Public room - no password needed' });
+    }
+    
+    // Check password for private rooms
+    if (room.password === password) {
+      return res.json({ success: true, message: 'Password correct' });
+    } else {
+      return res.status(401).json({ success: false, message: 'Incorrect password' });
+    }
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }

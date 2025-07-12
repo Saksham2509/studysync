@@ -94,9 +94,10 @@ module.exports = (io, socketRooms = {}) => {
       if (!rooms[room]) {
         rooms[room] = { 
           users: [], 
-          timer: null, 
+          timer: { running: false, seconds: 25 * 60, label: "Custom Timer" }, 
           cycles: 0
         };
+        console.log(`🆕 Initialized new room ${room} with default timer state`);
       }
       
       // Remove any previous entries for this socket or user (prevents duplicates)
@@ -140,9 +141,9 @@ module.exports = (io, socketRooms = {}) => {
         displayName = socket.user.name;
         console.log(`✅ Using authenticated user name: ${displayName}`);
       } else {
-        // Only use provided userName if not authenticated or if no valid authenticated name
-        displayName = userName || socket.user.name || 'Anonymous User';
-        console.log(`⚠️ Using fallback name: ${displayName} (provided: ${userName}, socket: ${socket.user.name})`);
+        // For non-authenticated users, prioritize the provided userName over the default 'Anonymous User'
+        displayName = userName || 'Anonymous User';
+        console.log(`⚠️ Using provided name for non-authenticated user: ${displayName} (provided: ${userName})`);
       }
       
       // Add user to room with complete information
@@ -198,7 +199,8 @@ module.exports = (io, socketRooms = {}) => {
           name: room,
           host: hostId,
           users: rooms[room].users,
-          isPublic: true // All rooms are now public
+          isPublic: dbRoom.isPublic, // Preserve existing privacy setting
+          password: dbRoom.password   // Preserve existing password
         });
       } catch (err) {
         console.error('Error saving room:', err);
@@ -227,6 +229,10 @@ module.exports = (io, socketRooms = {}) => {
       io.to(room).emit('roomUsers', rooms[room].users);
       // Also send the user list directly to the joining socket
       socket.emit('roomUsers', rooms[room].users);
+      
+      // Send current timer state to the joining user
+      console.log(`📤 Sending current timer state to ${socket.user.name}:`, rooms[room].timer);
+      socket.emit('timer:update', rooms[room].timer);
       
       // Broadcast room change to all clients so they can refresh room lists
       broadcastRoomChange(room);
@@ -561,24 +567,11 @@ module.exports = (io, socketRooms = {}) => {
         // Clear any existing interval
         if (rooms[room].interval) {
           clearInterval(rooms[room].interval);
+          rooms[room].interval = null;
         }
         rooms[room].timer = { ...timer, running: true };
+        console.log(`[Server] Broadcasting timer:update to room ${room}:`, rooms[room].timer);
         io.to(room).emit("timer:update", rooms[room].timer);
-        // Start interval
-        rooms[room].interval = setInterval(() => {
-          if (!rooms[room].timer.running) return;
-          if (rooms[room].timer.seconds > 0) {
-            rooms[room].timer.seconds -= 1;
-            io.to(room).emit("timer:update", rooms[room].timer);
-          } else {
-            // Timer finished
-            clearInterval(rooms[room].interval);
-            rooms[room].interval = null;
-            rooms[room].timer.running = false;
-            io.to(room).emit("timer:update", rooms[room].timer);
-            // Optionally emit a timer:done event here
-          }
-        }, 1000);
       }
     });
 
@@ -586,10 +579,27 @@ module.exports = (io, socketRooms = {}) => {
       console.log(`[Server] timer:pause received for room ${room}`);
       if (rooms[room] && rooms[room].timer) {
         rooms[room].timer.running = false;
+        console.log(`[Server] Broadcasting timer:update (paused) to room ${room}:`, rooms[room].timer);
         io.to(room).emit("timer:update", rooms[room].timer);
         if (rooms[room].interval) {
           clearInterval(rooms[room].interval);
           rooms[room].interval = null;
+        }
+      }
+    });
+
+    socket.on("timer:tick", ({ room, seconds }) => {
+      console.log(`[Server] timer:tick received for room ${room}, seconds: ${seconds}`);
+      if (rooms[room] && rooms[room].timer && rooms[room].timer.running) {
+        rooms[room].timer.seconds = seconds;
+        console.log(`[Server] Broadcasting timer:update to room ${room}:`, rooms[room].timer);
+        io.to(room).emit("timer:update", rooms[room].timer);
+        
+        // Check if timer finished
+        if (seconds <= 0) {
+          rooms[room].timer.running = false;
+          console.log(`[Server] Timer finished for room ${room}, broadcasting final state`);
+          io.to(room).emit("timer:update", rooms[room].timer);
         }
       }
     });
@@ -598,11 +608,24 @@ module.exports = (io, socketRooms = {}) => {
       console.log(`[Server] timer:reset received for room ${room}`, timer);
       if (rooms[room]) {
         rooms[room].timer = { ...timer, running: false };
+        console.log(`[Server] Broadcasting timer:update (reset) to room ${room}:`, rooms[room].timer);
         io.to(room).emit("timer:update", rooms[room].timer);
         if (rooms[room].interval) {
           clearInterval(rooms[room].interval);
           rooms[room].interval = null;
         }
+      }
+    });
+
+    // Handle request for current timer state
+    socket.on("requestTimerState", ({ room }) => {
+      console.log(`[Server] Timer state requested by ${socket.user.name} for room ${room}`);
+      if (rooms[room] && rooms[room].timer) {
+        console.log(`[Server] Sending current timer state to ${socket.user.name}:`, rooms[room].timer);
+        socket.emit("timer:update", rooms[room].timer);
+      } else {
+        console.log(`[Server] No timer state found for room ${room}, sending default`);
+        socket.emit("timer:update", { running: false, seconds: 25 * 60, label: "Custom Timer" });
       }
     });
 
@@ -639,7 +662,8 @@ module.exports = (io, socketRooms = {}) => {
         ...message, 
         user: userName,
         userId: userId,
-        isAuthenticated: isAuthenticated
+        isAuthenticated: isAuthenticated,
+        timestamp: new Date().toISOString()
       };
       
       console.log(`[Server] Message from ${userName} (${userId}) in room ${room}:`, message.text.substring(0, 20));
@@ -650,8 +674,8 @@ module.exports = (io, socketRooms = {}) => {
       console.log(`📤 Broadcasting message to ${socketCount} sockets in room "${room}":`, 
         socketsInRoom ? Array.from(socketsInRoom) : []);
       
-      // Send to all clients in the room except sender (to avoid duplicate messages)
-      socket.to(room).emit("chat:message", msgObj);
+      // Send to all clients in the room including sender for immediate feedback
+      io.to(room).emit("chat:message", msgObj);
       
       // Save to DB
       try {

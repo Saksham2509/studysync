@@ -5,11 +5,11 @@ import UserList from "../components/UserList";
 import Chat from "../components/Chat";
 import Timer from "../components/Timer";
 import LoginModal from "../components/LoginModal";
-import ConfirmModal from "../components/ConfirmModal";
+import PasswordModal from "../components/PasswordModal";
 import AlertModal from "../components/AlertModal";
+import ConfirmModal from "../components/ConfirmModal";
 import { useSocket } from "../contexts/SocketContext";
 import { useAuth } from "../contexts/AuthContext";
-import { useNotification } from "../contexts/NotificationContext";
 
 const StudyRoom = () => {
   const navigate = useNavigate();
@@ -22,16 +22,18 @@ const StudyRoom = () => {
   const [joinStatus, setJoinStatus] = useState("pending");
   const socket = useSocket();
   const { getUserInfo, loading: authLoading } = useAuth();
-  const { showError, showSuccess, showWarning } = useNotification();
   const userInfo = getUserInfo();
   const [userName, setUserName] = useState("");
   const [showRoomSelection, setShowRoomSelection] = useState(!roomName);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [redirectPath, setRedirectPath] = useState('');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [isLeavingRoom, setIsLeavingRoom] = useState(false);
   
-  // Modal states for confirmations and alerts
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
-  const [alertModal, setAlertModal] = useState({ isOpen: false, title: '', message: '', type: 'info', onClose: null });
+  // Modal states
+  const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" });
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: "", message: "", onConfirm: null, type: "warning" });
   
   // Room selection for /study-room page
   const [availableRooms, setAvailableRooms] = useState([]);
@@ -39,9 +41,19 @@ const StudyRoom = () => {
 
   // If we're on /study-room and not /room/:roomName
   useEffect(() => {
-    setRoom(roomName || "");
-    setShowRoomSelection(!roomName);
-  }, [roomName]);
+    const newRoom = roomName || "";
+    
+    // Only reset states if we're actually changing rooms, not just refreshing
+    if (newRoom !== room) {
+      setRoom(newRoom);
+      setShowRoomSelection(!roomName);
+      // Reset password modal state when room actually changes
+      setShowPasswordModal(false);
+      setJoinStatus("pending");
+      setRoomInfo(null); // Clear previous room info
+      setIsLeavingRoom(false); // Reset leaving flag
+    }
+  }, [roomName, room]);
 
   // Check if user is authenticated
   useEffect(() => {
@@ -66,11 +78,7 @@ const StudyRoom = () => {
           setLoading(true);
           const token = localStorage.getItem("token");
           const res = await axios.get(`/api/rooms`, {
-            headers: { 
-              Authorization: `Bearer ${token}`,
-              'Cache-Control': 'no-cache'
-            },
-            params: { t: Date.now() } // Cache busting
+            headers: { Authorization: `Bearer ${token}` },
           });
           setAvailableRooms(res.data.rooms || []);
         } catch (err) {
@@ -84,56 +92,15 @@ const StudyRoom = () => {
     }
   }, [showRoomSelection]);
 
-  // Listen for room changes to refresh the room list
-  useEffect(() => {
-    if (!socket || !showRoomSelection) return;
-
-    const handleRoomChanged = ({ room }) => {
-      console.log(`Room ${room} changed - refreshing room list`);
-      // Refetch the available rooms
-      const fetchAvailableRooms = async () => {
-        try {
-          setLoading(true);
-          const token = localStorage.getItem("token");
-          const res = await axios.get(`/api/rooms`, {
-            headers: { 
-              Authorization: `Bearer ${token}`,
-              'Cache-Control': 'no-cache'
-            },
-            params: { t: Date.now() } // Cache busting
-          });
-          setAvailableRooms(res.data.rooms || []);
-        } catch (err) {
-          console.error("Failed to fetch rooms:", err);
-        } finally {
-          setLoading(false);
-        }
-      };
-      
-      fetchAvailableRooms();
-    };
-
-    socket.on('roomChanged', handleRoomChanged);
-
-    return () => {
-      socket.off('roomChanged', handleRoomChanged);
-    };
-  }, [socket, showRoomSelection]);
-
   // Handle form submission for room selection
   const handleRoomSelect = async (e) => {
     e.preventDefault();
     
     if (!roomInput.trim()) return;
     
-    await joinRoom(roomInput.trim());
-  };
-
-  // Function to handle joining a room
-  const joinRoom = async (roomName) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`/api/rooms/${encodeURIComponent(roomName)}`, {
+      const response = await axios.get(`/api/rooms/${encodeURIComponent(roomInput.trim())}`, {
         headers: { Authorization: `Bearer ${token}` }
       }).catch(error => {
         if (error.response && error.response.status === 404) {
@@ -145,21 +112,30 @@ const StudyRoom = () => {
       const roomExists = response.data && response.data.room;
       
       if (!roomExists) {
-        showError(`Room "${roomName}" does not exist!`);
+        setAlertModal({
+          isOpen: true,
+          title: "Room Not Found",
+          message: `Room "${roomInput.trim()}" does not exist!`,
+          type: "error"
+        });
         return;
-      } 
-      
-      // Room exists, navigate directly (all rooms are public now)
-      navigate(`/room/${encodeURIComponent(roomName)}`);
+      } else {
+        navigate(`/room/${encodeURIComponent(roomInput.trim())}`);
+      }
     } catch (error) {
       console.error("Error checking room existence:", error);
-      showError("An error occurred while checking if this room exists.");
+      setAlertModal({
+        isOpen: true,
+        title: "Error",
+        message: "An error occurred while checking if this room exists.",
+        type: "error"
+      });
     }
   };
 
   // Fetch room details
   useEffect(() => {
-    if (!room || showRoomSelection) {
+    if (!room || showRoomSelection || isLeavingRoom) {
       return;
     }
     
@@ -172,17 +148,23 @@ const StudyRoom = () => {
           headers: { Authorization: `Bearer ${token}` },
         });
         
-        const roomData = res.data.room;
-        
-        // Set room data since all rooms are now public
-        
-        setRoomInfo(roomData);
+        setRoomInfo(res.data.room);
         setInfoError("");
+        
+        // Check if room is private and user hasn't been verified (but not if leaving)
+        if (!res.data.room.isPublic && 
+            !isLeavingRoom &&
+            !localStorage.getItem(`roomAccess_${room}`) && 
+            !sessionStorage.getItem(`roomSession_${room}`)) {
+          setShowPasswordModal(true);
+          setLoading(false);
+          return;
+        }
         
         // Check if current user is the host
         if (
-          roomData.host === userInfo.id || 
-          roomData.host === userInfo.email ||
+          res.data.room.host === userInfo.id || 
+          res.data.room.host === userInfo.email ||
           (localStorage.getItem("createdRoom") === room)
         ) {
           setIsHost(true);
@@ -200,14 +182,19 @@ const StudyRoom = () => {
         setLoading(false);
         
         if (err.response?.status === 404) {
-          showError(`Room "${room}" does not exist!`);
-          navigate("/study-room");
+          setAlertModal({
+            isOpen: true,
+            title: "Room Not Found",
+            message: `Room "${room}" does not exist!`,
+            type: "error"
+          });
+          setTimeout(() => navigate("/study-room"), 2000);
         }
       }
     };
     
     fetchRoom();
-  }, [room, navigate, userInfo.id, userInfo.email, socket]);
+  }, [room, navigate, userInfo.id, userInfo.email]); // Removed socket from dependencies to prevent unnecessary re-runs
 
   // Handle socket connection and room joining
   useEffect(() => {
@@ -215,18 +202,11 @@ const StudyRoom = () => {
     
     const handleJoinRoom = () => {
       try {
-        console.log('🔍 DEBUG: User info before joining:', {
-          userInfo,
-          userName,
-          finalUserName: userName || userInfo.name
-        });
-        
         const joinData = { 
           room,
           userName: userName || userInfo.name,
           asHost: isHost
         };
-        console.log(`🚀 StudyRoom: Emitting joinRoom for ${room}:`, joinData);
         socket.emit("joinRoom", joinData);
         setJoinStatus("joined");
       } catch (err) {
@@ -243,26 +223,13 @@ const StudyRoom = () => {
     if (!socket) return;
     
     const handleRoomClosed = ({ reason }) => {
-      console.log('🚨 StudyRoom: Room closed event received:', { reason, currentRoom: room });
-      
-      // Show alert modal with navigation
       setAlertModal({
         isOpen: true,
-        title: "Room Closed",
-        message: reason || "The room has been closed by the host.",
-        type: "warning",
-        onClose: () => {
-          console.log('🚨 StudyRoom: Navigating away from closed room');
-          // Navigate back to study room list
-          navigate('/study-room');
-        }
+        title: "Session Ended",
+        message: reason,
+        type: "warning"
       });
-      
-      // Also navigate after a short delay as a fallback
-      setTimeout(() => {
-        console.log('🚨 StudyRoom: Fallback navigation triggered');
-        navigate('/study-room');
-      }, 3000);
+      setTimeout(() => navigate("/study-room"), 3000);
     };
     
     socket.on("roomClosed", handleRoomClosed);
@@ -270,13 +237,51 @@ const StudyRoom = () => {
     return () => {
       socket.off("roomClosed", handleRoomClosed);
     };
-  }, [socket, navigate, room]);
+  }, [socket, navigate]);
+
+  // Handle password submission for private rooms
+  const handlePasswordSubmit = async (password, username) => {
+    try {
+      setPasswordLoading(true);
+      
+      const token = localStorage.getItem("token");
+      const response = await axios.post(`/api/rooms/${encodeURIComponent(room)}/verify-password`, 
+        { password }, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.data.success) {
+        // Store access token for this room in both localStorage and sessionStorage
+        localStorage.setItem(`roomAccess_${room}`, 'true');
+        sessionStorage.setItem(`roomSession_${room}`, 'true');
+        
+        // If username provided (non-authenticated user), update our local username
+        if (username) {
+          setUserName(username);
+        }
+        
+        setShowPasswordModal(false);
+        setPasswordLoading(false);
+        
+        // Continue with room joining process
+        setJoinStatus("pending");
+      }
+    } catch (error) {
+      setPasswordLoading(false);
+      setAlertModal({
+        isOpen: true,
+        title: "Access Denied",
+        message: error.response?.data?.message || "Incorrect password",
+        type: "error"
+      });
+    }
+  };
 
   if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center p-8">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mb-4"></div>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
           <p className="text-lg text-gray-600">Loading...</p>
         </div>
       </div>
@@ -300,80 +305,121 @@ const StudyRoom = () => {
     );
   }
 
+  if (showPasswordModal) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <PasswordModal
+          isOpen={showPasswordModal}
+          onClose={() => {
+            setShowPasswordModal(false);
+            navigate("/study-room");
+          }}
+          onSubmit={handlePasswordSubmit}
+          roomName={room || roomName || roomInfo?.name || "Unknown Room"}
+          isLoading={passwordLoading}
+          userInfo={userInfo}
+        />
+      </div>
+    );
+  }
+
   // Room selection UI
   if (showRoomSelection) {
     return (
-      <div className="max-w-4xl mx-auto p-6 min-h-screen bg-gray-50">
-        <div className="bg-white shadow-lg rounded-lg p-6 mb-6">
-          <h1 className="text-3xl font-bold mb-6 text-center text-purple-700">
-            Study Rooms
-          </h1>
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              Study Rooms
+            </h1>
+            <p className="text-lg text-gray-600">
+              Join an existing room or create a new one to start studying
+            </p>
+          </div>
           
-          <form onSubmit={handleRoomSelect} className="mb-8">
-            <div className="flex gap-2 mb-4">
-              <input
-                type="text"
-                value={roomInput}
-                onChange={(e) => setRoomInput(e.target.value)}
-                placeholder="Enter room name"
-                className="flex-1 p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-              <button
-                type="submit"
-                className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 transition-colors"
-                disabled={loading}
-              >
-                Join
-              </button>
-            </div>
-          </form>
-          
-          <h2 className="text-xl font-semibold mb-4">Available Rooms:</h2>
-          
-          {loading ? (
-            <div className="text-center py-8">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500 mb-2"></div>
-              <p>Loading rooms...</p>
-            </div>
-          ) : availableRooms.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No active study rooms available.</p>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {availableRooms.map((r) => (
-                <div
-                  key={r._id}
-                  className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                  onClick={() => {
-                    console.log("🎯 ROOM CARD CLICKED!");
-                    console.log("Room:", r.name, "isPublic:", r.isPublic);
-                    setRoomInput(r.name);
-                    joinRoomWithPasswordCheck(r.name);
-                  }}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-medium text-lg">{r.name}</h3>
-                    {!r.isPublic && (
-                      <svg className="w-4 h-4 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-600">
-                    <span className="text-green-600">Public</span> • {r.activeCount || 0} active users
-                  </p>
+          <div className="card mb-8">
+            <div className="card-body">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Join a Room</h2>
+              <form onSubmit={handleRoomSelect}>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={roomInput}
+                    onChange={(e) => setRoomInput(e.target.value)}
+                    placeholder="Enter room name"
+                    className="input-field flex-1"
+                  />
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={loading}
+                  >
+                    Join Room
+                  </button>
                 </div>
-              ))}
+              </form>
             </div>
-          )}
-        </div>
-        
-        <div className="text-center">
-          <button
-            onClick={() => navigate("/create-room")}
-            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 transition-colors shadow-md"
-          >
-            Create a New Room
-          </button>
+          </div>
+          
+          <div className="card mb-8">
+            <div className="card-header">
+              <h2 className="text-lg font-semibold text-gray-900">Available Rooms</h2>
+            </div>
+            <div className="card-body">
+              {loading ? (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-2"></div>
+                  <p className="text-gray-600">Loading rooms...</p>
+                </div>
+              ) : availableRooms.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  <p className="text-lg font-medium mb-2">No active rooms</p>
+                  <p className="text-sm">Be the first to create a study room!</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {availableRooms.map((r) => (
+                    <div
+                      key={r._id}
+                      className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer group"
+                      onClick={() => {
+                        setRoomInput(r.name);
+                        navigate(`/room/${encodeURIComponent(r.name)}`);
+                      }}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <h3 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                          {r.name}
+                        </h3>
+                        <span className={`${r.isPublic ? 'badge-success' : 'badge-warning'}`}>
+                          {r.isPublic ? "Public" : "Private"}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center text-sm text-gray-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        {r.activeCount || 0} users active
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="text-center">
+            <button
+              onClick={() => navigate("/create-room")}
+              className="btn-primary"
+            >
+              Create New Room
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -383,7 +429,7 @@ const StudyRoom = () => {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center p-8">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mb-4"></div>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
           <p className="text-lg text-gray-600">Loading room...</p>
         </div>
       </div>
@@ -391,108 +437,124 @@ const StudyRoom = () => {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-2">Room: {room}</h1>
-      {roomInfo && (
-        <div className="mb-4 bg-white shadow rounded p-4">
-          <h2 className="font-semibold text-lg mb-2">Room Information</h2>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="text-gray-600">Name:</div>
-            <div>{roomInfo.name}</div>
-            
-            <div className="text-gray-600">Status:</div>
-            <div>{roomInfo.isPublic ? 
-              <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">Public</span> : 
-              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">Private</span>}
+    <div className="min-h-screen bg-gray-50 py-6">
+      <div className="max-w-6xl mx-auto px-6">
+        {/* Room Header */}
+        <div className="card mb-6">
+          <div className="card-header">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">{room}</h1>
+                <p className="text-sm text-gray-600">
+                  Joined as <span className="font-medium">{userName || userInfo.name}</span>
+                </p>
+              </div>
+              {roomInfo && (
+                <div className="flex items-center gap-3">
+                  <div className="text-center">
+                    <div className="text-xs text-gray-500 mb-1">Room Type</div>
+                    <span className={`${roomInfo.isPublic ? 'badge-success' : 'badge-primary'}`}>
+                      {roomInfo.isPublic ? 'Public' : 'Private'}
+                    </span>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-gray-500 mb-1">Your Role</div>
+                    <span className={`${isHost ? 'badge-warning' : 'badge-gray'}`}>
+                      {isHost ? 'Host' : 'Member'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-            
-            <div className="text-gray-600">Your Role:</div>
-            <div>{isHost ? 
-              <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded-full text-xs font-medium">Host</span> : 
-              <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium">Member</span>}
-            </div>
-            
-            <div className="text-gray-600">Joined As:</div>
-            <div>{userName || userInfo.name}</div>
           </div>
         </div>
-      )}
-      
-      {infoError && <div className="text-red-500 text-sm mb-2">{infoError}</div>}
-      
-      {/* Debug: Log when UserList is rendered */}
-      {console.log("🎯 StudyRoom: Rendering UserList with room:", room, "joinStatus:", joinStatus)}
-      <UserList room={room} />
-      <Timer room={room} isHost={isHost} />
-      <Chat room={room} userName={userName || userInfo.name} />
-      
-      <div className="mt-6 flex justify-between">
-        <button
-          className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
-          onClick={() => {
-            if (socket) {
-              socket.emit("leaveRoom", { room });
-              setTimeout(() => navigate("/study-room"), 100);
-            } else {
-              navigate("/study-room");
-            }
-          }}
-        >
-          Leave Room
-        </button>
-        
-        {isHost && (
-          <button
-            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-            onClick={() => {
-              setConfirmModal({
-                isOpen: true,
-                title: "End Study Session",
-                message: "Are you sure you want to end this study session for everyone? This action cannot be undone.",
-                onConfirm: () => {
-                  if (socket) {
-                    socket.emit("endSession", { room });
-                    setTimeout(() => {
-                      navigate("/study-room");
-                    }, 500);
-                  } else {
-                    navigate("/study-room");
-                  }
-                  setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
-                }
-              });
-            }}
-          >
-            End Session
-          </button>
+
+        {infoError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg mb-6">
+            {infoError}
+          </div>
         )}
+        
+        {/* Main Content Grid */}
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Left Column - Timer & Users */}
+          <div className="lg:col-span-1 space-y-6">
+            <Timer room={room} isHost={isHost} />
+            <UserList room={room} />
+          </div>
+          
+          {/* Right Column - Chat */}
+          <div className="lg:col-span-2">
+            <Chat room={room} userName={userName || userInfo.name} />
+          </div>
+        </div>
+        
+        {/* Room Actions */}
+        <div className="mt-8 flex justify-between items-center">
+          <button
+            onClick={() => {
+              setIsLeavingRoom(true);
+              localStorage.removeItem(`roomAccess_${room}`);
+              sessionStorage.removeItem(`roomSession_${room}`);
+              if (socket) {
+                socket.emit("leaveRoom", { room });
+                setTimeout(() => navigate("/study-room"), 100);
+              } else {
+                navigate("/study-room");
+              }
+            }}
+            className="btn-secondary"
+          >
+            Leave Room
+          </button>
+          
+          {isHost && (
+            <button
+              onClick={() => {
+                setConfirmModal({
+                  isOpen: true,
+                  title: "End Study Session",
+                  message: "Are you sure you want to end this study session for everyone? This action cannot be undone.",
+                  type: "danger",
+                  onConfirm: () => {
+                    if (socket) {
+                      socket.emit("endSession", { room });
+                      setTimeout(() => {
+                        navigate("/study-room");
+                      }, 500);
+                    } else {
+                      navigate("/study-room");
+                    }
+                    setConfirmModal({ ...confirmModal, isOpen: false });
+                  }
+                });
+              }}
+              className="btn-danger"
+            >
+              End Session
+            </button>
+          )}
+        </div>
       </div>
       
       {/* Modals */}
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        title={confirmModal.title}
-        message={confirmModal.message}
-        onConfirm={confirmModal.onConfirm}
-        onCancel={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
-        confirmText="End Session"
-        type="danger"
-      />
-      
       <AlertModal
         isOpen={alertModal.isOpen}
         title={alertModal.title}
         message={alertModal.message}
         type={alertModal.type}
-        onClose={() => {
-          // Close the modal first
-          setAlertModal({ isOpen: false, title: '', message: '', type: 'info', onClose: null });
-          
-          // Then call the custom onClose if it exists
-          if (alertModal.onClose) {
-            alertModal.onClose();
-          }
-        }}
+        onClose={() => setAlertModal({ ...alertModal, isOpen: false })}
+      />
+      
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        confirmText="End Session"
+        cancelText="Cancel"
       />
     </div>
   );

@@ -7,8 +7,6 @@ const PasswordModal = ({ isOpen, onClose, onSubmit, roomName, isLoading, userInf
 
   const isAuthenticated = userInfo?.isAuthenticated;
 
-  console.log("🔐 PasswordModal render:", { isOpen, roomName, isLoading, isAuthenticated });
-
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!password.trim()) {
@@ -16,13 +14,11 @@ const PasswordModal = ({ isOpen, onClose, onSubmit, roomName, isLoading, userInf
       return;
     }
     
-    // For non-authenticated users, require username
     if (!isAuthenticated && !username.trim()) {
       setError('Username is required');
       return;
     }
     
-    // Pass both password and username (if needed)
     onSubmit(password.trim(), !isAuthenticated ? username.trim() : null);
   };
 
@@ -34,24 +30,11 @@ const PasswordModal = ({ isOpen, onClose, onSubmit, roomName, isLoading, userInf
   };
 
   if (!isOpen) {
-    console.log("🔐 PasswordModal not open, returning null");
     return null;
   }
 
-  console.log("🔐 PasswordModal rendering modal for room:", roomName);
-  console.log("🔐 PasswordModal props:", { isOpen, roomName, isLoading, isAuthenticated });
-
   return (
-    <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      style={{ zIndex: 9999 }}
-      onClick={(e) => {
-        // Close modal if clicking the backdrop
-        if (e.target === e.currentTarget) {
-          handleClose();
-        }
-      }}
-    >
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-gray-900">
